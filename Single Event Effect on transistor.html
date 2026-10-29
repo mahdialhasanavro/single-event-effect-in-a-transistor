@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Single Event Effect: ion strike on a transistor</title>
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--tx:#121722;--mut:#5a6577;--bd:#d9dee6;--ac:#1d4ed8;--hot:#dc2626;--warn:#d97706;--ok:#059669;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b0f17;--card:#141b27;--tx:#e8edf5;--mut:#93a0b5;--bd:#26324a;--ac:#6aa0ff;--hot:#f87171;--warn:#fbbf24;--ok:#34d399;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0b0f17;--card:#141b27;--tx:#e8edf5;--mut:#93a0b5;--bd:#26324a;--ac:#6aa0ff;--hot:#f87171;--warn:#fbbf24;--ok:#34d399;color-scheme:dark}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:16px 14px 40px}
+h1{font:700 1.45rem/1.2 Georgia,"Times New Roman",serif;margin:4px 0}
+h2{font:600 1rem/1.3 Georgia,serif;margin:0 0 8px}
+.sub{color:var(--mut);margin:0 0 14px;max-width:64ch}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:12px}
+canvas{width:100%;height:auto;display:block;border-radius:8px;touch-action:manipulation}
+#dv{cursor:crosshair}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}
+button,select{font:inherit;color:var(--tx);background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:6px 12px;cursor:pointer}
+button.go{background:var(--ac);color:#fff;border-color:var(--ac);font-weight:600}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.ctrl{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px 18px}
+.ctrl label{display:block;font-size:.88rem;color:var(--mut)}
+.ctrl label b{color:var(--tx);font-weight:600;float:right}
+input[type=range]{width:100%;accent-color:var(--ac)}
+.met{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}
+.m{border:1px solid var(--bd);border-radius:8px;padding:8px 10px}
+.m span{display:block;font-size:.78rem;color:var(--mut)}
+.m strong{font:600 1.15rem/1.3 Georgia,serif}
+.ok{color:var(--ok)}.bad{color:var(--hot)}
+.note{font-size:.82rem;color:var(--mut)}
+</style></head><body><main>
+<h1>Single event effect in a transistor</h1>
+<p class="sub">Tap the chip surface to fire a heavy ion at that spot. Watch the ionization track, carrier collection by the drain, the current pulse, and whether the SRAM cell flips.</p>
+
+<div class="card">
+<canvas id="dv" aria-label="Cross-section of an NMOS transistor struck by an ion"></canvas>
+<div class="row">
+<button class="go" id="fire">Fire ion</button>
+<label class="note"><input type="checkbox" id="fun" checked> charge funneling</label>
+<label class="note"><input type="checkbox" id="car" checked> show carriers</label>
+<span class="note">Tap the cross-section to strike anywhere.</span>
+</div></div>
+
+<div class="card"><div class="ctrl">
+<label>Ion LET (MeV·cm²/mg) <b id="lev"></b><input id="le" type="range" min="-1" max="2" step="0.01" value="-0.3"></label>
+<label>Strike position x (µm) <b id="pxv"></b><input id="px" type="range" min="0.3" max="11.2" step="0.05" value="5.3"></label>
+<label>Strike angle from vertical <b id="anv"></b><input id="an" type="range" min="-60" max="60" step="1" value="0"></label>
+<label>Technology node <b id="ndv"></b>
+<select id="nd" style="width:100%"><option>28</option><option>45</option><option selected>65</option><option>130</option><option>250</option></select></label>
+<label>Supply voltage Vdd <b id="vdv"></b><input id="vd" type="range" min="0.6" max="1.8" step="0.05" value="1"></label>
+</div></div>
+
+<div class="card">
+<h2>What the strike does to the 6T SRAM cell</h2>
+<canvas id="pl" aria-label="Current pulse and SRAM node voltages over time"></canvas>
+<div class="met">
+<div class="m"><span>Charge generated</span><strong id="qg">0</strong></div>
+<div class="m"><span>Charge collected</span><strong id="qk">0</strong></div>
+<div class="m"><span>Critical charge Qcrit</span><strong id="qcr">0</strong></div>
+<div class="m"><span>Threshold LET (this spot)</span><strong id="lt">0</strong></div>
+<div class="m"><span>Outcome</span><strong id="rs">-</strong></div>
+</div>
+<p class="note">Schematic, not to scale. The ion deposits about 10.8 fC per µm for each MeV·cm²/mg of LET. The drain collects charge by drift inside the depletion region, by funneling (field extends deeper along the track), and by slower diffusion. The struck drain is the OFF NMOS of the inverter holding Q = 1; its current pulse discharges Q while the cross-coupled inverters fight to restore it. Qcrit is found by scaling this pulse until the cell just flips.</p>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const dpr=Math.min(window.devicePixelRatio||1,2);
+const mk=(id,w,h)=>{const k=$(id);k.width=w*dpr;k.height=h*dpr;const x=k.getContext('2d');x.scale(dpr,dpr);return x};
+const a=mk('dv',700,370),b=mk('pl',700,340);
+const SU=80,SC=60,D0=4.6,D1=6,DZ=.9,TAP=8.9,W=11.5,ZB=4.5;
+const X=x=>x*SC+5,Y=z=>SU+z*SC;
+let R,A={mode:0,t0:0,d:[]};
+function P(){return{LET:Math.pow(10,+$('le').value),th:+$('an').value*Math.PI/180,x0:+$('px').value,node:+$('nd').value,vdd:+$('vd').value,fun:$('fun').checked}}
+function eta(x,z,fun){const dx=Math.max(0,D0-x,x-D1);
+ if(dx<.25&&z<DZ)return[1,0];
+ if(fun&&dx<.45&&z<2.2)return[.85*Math.exp(-Math.max(0,z-DZ)/.9),1];
+ const dist=Math.hypot(dx,Math.max(0,z-DZ));return[.15*Math.exp(-dist/1.3),2]}
+function calc(){const p=P(),pts=[],ds=.05,dq=10.8*p.LET*ds/Math.cos(p.th);let g=0,Qp=0,Qd=0;
+ for(let z=0;z<=ZB;z+=ds){const x=p.x0+z*Math.tan(p.th);if(x<0||x>W)break;const[e,zn]=eta(x,z,p.fun);pts.push({x,z,e,zn});g+=dq;if(zn<2)Qp+=e*dq;else Qd+=e*dq}
+ const C=p.node*.03,tau=20+.4*p.node,tf=40+1.1*p.node,tr=8;
+ const pulse=(t,qp,qd)=>qp/(tf-tr)*(Math.exp(-t/tf)-Math.exp(-t/tr))+qd/700*(Math.exp(-t/800)-Math.exp(-t/100));
+ const inv=v=>p.vdd*.5*(1-Math.tanh(3*(2*v/p.vdd-1)));
+ const run=(qp,qd,keep)=>{let q=p.vdd,qb=0;const I=[],A1=[],B1=[];
+  for(let i=0;i<1500;i++){const cur=pulse(i*2,qp,qd);if(keep){I.push(cur);A1.push(q);B1.push(qb)}
+   const nq=q+2*((inv(qb)-q)/tau-cur/C),nqb=qb+2*((inv(q)-qb)/tau);q=Math.max(-.1,nq);qb=Math.max(-.1,nqb)}
+  const f=q<p.vdd/2&&qb>p.vdd/2;return keep?{I,A1,B1,f}:f};
+ const Q0=Qp+Qd,s=run(Qp,Qd,true);let Qc=Infinity;
+ if(Q0>0){let hi=1;while(hi<1e7&&!run(Qp*hi,Qd*hi))hi*=2;
+  if(hi<1e7){let lo=hi===1?0:hi/2;for(let k=0;k<14;k++){const m=(lo+hi)/2;run(Qp*m,Qd*m)?hi=m:lo=m}Qc=hi*Q0}}
+ R={p,pts,g,Q0,Qp,Qd,Qc,s,LETth:Q0>0?p.LET*Qc/Q0:Infinity};
+ $('lev').textContent=p.LET.toFixed(p.LET<10?2:0);$('pxv').textContent=p.x0.toFixed(2)+' µm';$('anv').textContent=Math.round(p.th*57.3)+'°';$('ndv').textContent=p.node+' nm';$('vdv').textContent=p.vdd.toFixed(2)+' V';
+ $('qg').textContent=g.toFixed(g<10?2:0)+' fC';$('qk').textContent=Q0.toFixed(Q0<10?2:1)+' fC';
+ $('qcr').textContent=isFinite(Qc)?Qc.toFixed(Qc<10?2:1)+' fC':'n/a';
+ $('lt').textContent=isFinite(R.LETth)?(R.LETth<100?R.LETth.toFixed(2):'>100'):'>100';
+ const r=$('rs');r.textContent=s.f?'Bit flipped (SEU)':'No upset';r.className=s.f?'bad':'ok'}
+function mkDots(){A.d=[];const n=Math.min(220,Math.round(40+R.p.LET*8));if(!R.pts.length)return;
+ for(let k=0;k<n;k++){const pt=R.pts[Math.floor(Math.random()*R.pts.length)],x=pt.x+(Math.random()-.5)*.12,z=pt.z+(Math.random()-.5)*.08;
+  let tc,fade=0;if(pt.zn===0)tc=15+Math.random()*100;else if(pt.zn===1)tc=60+Math.random()*200;
+  else if(Math.random()<Math.min(1,pt.e*5))tc=300+Math.random()*2200;else{tc=300+Math.random()*2000;fade=1}
+  A.d.push({x,z,tc,tx:5.3,tz:.12,fade,h:0});A.d.push({x:x+.04,z:z+.03,tc:150+Math.random()*900,tx:TAP,tz:.12,fade:0,h:1})}}
+function fire(x){if(x!=null)$('px').value=x.toFixed(2);calc();mkDots();A.mode=1;A.t0=performance.now()}
+function drawDev(now){const p=R.p,ms=now-A.t0,ionU=A.mode?Math.min(1,ms/800):1,u=A.mode?Math.max(0,Math.min(1,(ms-800)/5500)):1,tps=3000*u*u;
+ a.fillStyle='#0b1220';a.fillRect(0,0,700,370);a.fillStyle='#16233a';a.fillRect(0,SU,700,Y(ZB)-SU);
+ a.font='11px sans-serif';a.fillStyle='#8aa0c0';a.fillText('p-type substrate / well',12,Y(ZB)-8);
+ a.fillStyle='#3b4a63';a.fillRect(X(1.3),SU,.7*SC,.5*SC);a.fillRect(X(6),SU,.7*SC,.5*SC);a.fillText('STI',X(1.45),SU+36);
+ a.fillStyle='rgba(45,212,191,.22)';a.beginPath();a.ellipse(X(5.3),SU,SC,DZ*SC,0,0,Math.PI);a.fill();
+ a.fillStyle='#5eead4';a.fillText('depletion',X(4.85),Y(.62));
+ if(p.fun){a.setLineDash([5,4]);a.strokeStyle='rgba(250,204,21,.65)';a.beginPath();a.ellipse(X(5.3),SU,1.1*SC,2.2*SC,0,0,Math.PI);a.stroke();a.setLineDash([]);a.fillStyle='#fde047';a.fillText('funnel',X(5.05),Y(2.05))}
+ a.fillStyle='#2563eb';a.fillRect(X(2),SU,1.4*SC,15);a.fillRect(X(D0),SU,1.4*SC,15);
+ a.fillStyle='#b45309';a.fillRect(X(8.6),SU,.6*SC,15);
+ a.fillStyle='#e2e8f0';a.fillRect(X(3.4),SU-4,1.2*SC,4);a.fillStyle='#94a3b8';a.fillRect(X(3.4),SU-30,1.2*SC,26);
+ a.fillStyle='#0b1220';a.font='10px sans-serif';a.fillText('Gate 0 V',X(3.4)+12,SU-13);
+ a.strokeStyle='#facc15';a.lineWidth=2;for(const cx of[2.7,5.3,8.9]){a.beginPath();a.moveTo(X(cx),SU);a.lineTo(X(cx),46);a.stroke()}
+ a.fillStyle='#e2e8f0';a.font='11px sans-serif';a.fillText('Source n+ (VSS)',X(2.7)-48,40);a.fillText('Drain n+ = node Q (1)',X(5.3)-44,40);a.fillText('p+ tap (VSS)',X(8.9)-36,40);
+ a.fillStyle='#38bdf8';a.beginPath();a.arc(560,16,3,0,6.3);a.fill();a.fillText('electron',568,20);a.fillStyle='#f59e0b';a.beginPath();a.arc(626,16,3,0,6.3);a.fill();a.fillText('hole',634,20);
+ const last=R.pts[R.pts.length-1]||{x:p.x0,z:0},zmax=last.z,tn=Math.tan(p.th),xz=z=>p.x0+z*tn;
+ a.lineWidth=2;a.setLineDash([5,4]);a.strokeStyle='rgba(251,113,133,.55)';a.beginPath();a.moveTo(X(xz(-.8)),Y(-.8));a.lineTo(X(xz(zmax)),Y(zmax));a.stroke();a.setLineDash([]);
+ const zc=-.8+ionU*(zmax+.8);
+ if(A.mode){a.strokeStyle='#fb7185';a.beginPath();a.moveTo(X(xz(-.8)),Y(-.8));a.lineTo(X(xz(zc)),Y(zc));a.stroke();
+  if(ionU<1){a.fillStyle='#fff';a.beginPath();a.arc(X(xz(zc)),Y(zc),4,0,6.3);a.fill()}
+  if($('car').checked){for(const d of A.d){if(d.z>zc)continue;const s=Math.min(1,tps/d.tc);if(!d.fade&&s>=1)continue;let x=d.x,z=d.z,al=1;
+   if(d.fade)al=1-s;else{const e=s*s*(3-2*s);x+=(d.tx-d.x)*e;z+=(d.tz-d.z)*e}
+   a.globalAlpha=al;a.fillStyle=d.h?'#f59e0b':'#38bdf8';a.beginPath();a.arc(X(x),Y(z),2.2,0,6.3);a.fill()}a.globalAlpha=1}
+  if(ms>6300)A.mode=0}
+ return tps}
+function drawPl(tps){const cs=getComputedStyle(document.documentElement),g=v=>cs.getPropertyValue(v),p=R.p,s=R.s;
+ b.clearRect(0,0,700,340);b.font='11px sans-serif';b.lineWidth=1;
+ const L=52,Rr=690,w=Rr-L,tx=t=>L+t/3000*w,T1=24,B1=130,T2=198,B2=304;
+ const Im=Math.max(1e-6,...s.I)*1.15,n=Math.min(1499,Math.floor(tps/2));
+ b.fillStyle=g('--mut');b.fillText('Collected current I(t) at the struck drain (mA)',L,14);b.fillText('SRAM node voltages (V)',L,188);
+ b.strokeStyle=g('--bd');
+ for(let t=0;t<=3000;t+=500){b.beginPath();b.moveTo(tx(t),T1);b.lineTo(tx(t),B1);b.moveTo(tx(t),T2);b.lineTo(tx(t),B2);b.stroke();b.fillText(t+' ps',tx(t)-14,B2+14)}
+ b.strokeRect(L,T1,w,B1-T1);b.strokeRect(L,T2,w,B2-T2);
+ b.fillStyle=g('--mut');b.fillText(Im.toFixed(3),6,T1+8);b.fillText('0',40,B1);b.fillText(p.vdd.toFixed(1),24,T2+8);b.fillText('0',40,B2);
+ b.lineWidth=2;b.strokeStyle=g('--hot');b.beginPath();for(let i=0;i<=n;i++){const x=tx(i*2),y=B1-s.I[i]/Im*(B1-T1);i?b.lineTo(x,y):b.moveTo(x,y)}b.stroke();
+ const vy=v=>B2-Math.max(0,Math.min(1.1,v/p.vdd))/1.1*(B2-T2);
+ b.setLineDash([4,4]);b.strokeStyle=g('--mut');b.lineWidth=1;b.beginPath();b.moveTo(L,vy(p.vdd/2));b.lineTo(Rr,vy(p.vdd/2));b.stroke();b.setLineDash([]);
+ b.fillStyle=g('--mut');b.fillText('Vdd/2',Rr-38,vy(p.vdd/2)-4);
+ b.lineWidth=2;for(const[arr,col]of[[s.A1,'--ac'],[s.B1,'--warn']]){b.strokeStyle=g(col);b.beginPath();for(let i=0;i<=n;i++){const x=tx(i*2),y=vy(arr[i]);i?b.lineTo(x,y):b.moveTo(x,y)}b.stroke()}
+ b.fillStyle=g('--ac');b.fillText('Q (stores 1)',L+8,T2+14);b.fillStyle=g('--warn');b.fillText('QB (stores 0)',L+90,T2+14);
+ b.fillStyle=s.f?g('--hot'):g('--ok');b.font='bold 12px sans-serif';b.fillText(s.f?'Stored bit 1 becomes 0 (upset)':'Stored bit 1 is kept',Rr-190,T2+14);
+ b.strokeStyle=g('--mut');b.lineWidth=1;b.beginPath();b.moveTo(tx(tps),T1);b.lineTo(tx(tps),B2);b.stroke()}
+function frame(now){const tps=drawDev(now);drawPl(tps);requestAnimationFrame(frame)}
+document.querySelectorAll('input[type=range],select').forEach(e=>e.addEventListener('input',calc));
+$('fun').onchange=calc;$('fire').onclick=()=>fire();
+$('dv').addEventListener('pointerdown',e=>{const r=$('dv').getBoundingClientRect(),x=((e.clientX-r.left)/r.width*700-5)/SC;fire(Math.max(.3,Math.min(11.2,x)))});
+calc();requestAnimationFrame(frame);
+</script></body></html>
